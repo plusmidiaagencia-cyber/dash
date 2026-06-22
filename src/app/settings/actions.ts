@@ -1,29 +1,40 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-import crypto from "node:crypto";
 import { DEFAULT_STORE_ID } from "@/lib/store";
-import { validateFacebook } from "@/lib/providers";
-import { authorizeUrl } from "@/lib/shopify-oauth";
+import { validateShopify, validateFacebook } from "@/lib/providers";
+import { runFullSync } from "@/lib/shopify-sync";
 import {
   saveConnection, saveCostSettings, saveStoreGoal, addAdjustment, deleteAdjustment,
-  saveShopifyOAuthStart,
 } from "@/lib/data";
 
 const STORE = DEFAULT_STORE_ID;
 
-export async function connectShopify(formData: FormData) {
-  let domain = String(formData.get("domain") || "").trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
-  if (domain && !domain.includes(".")) domain = `${domain}.myshopify.com`;
-  const clientId = String(formData.get("clientId") || "").trim();
-  const clientSecret = String(formData.get("clientSecret") || "").trim();
-  const shopifyPayments = formData.get("shopifyPayments") === "on";
-  if (!domain || !clientId || !clientSecret) return;
+function normShopDomain(input: string): string {
+  let d = input.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const m = d.match(/admin\.shopify\.com\/store\/([^/]+)/);
+  if (m) return `${m[1]}.myshopify.com`;
+  if (d && !d.includes(".")) return `${d}.myshopify.com`;
+  return d;
+}
 
-  const state = crypto.randomBytes(16).toString("hex");
-  await saveShopifyOAuthStart(STORE, { domain, clientId, clientSecret, shopifyPayments, state });
-  redirect(authorizeUrl(domain, clientId, state));
+export async function connectShopify(formData: FormData) {
+  const domain = normShopDomain(String(formData.get("domain") || ""));
+  const token = String(formData.get("token") || "").trim();
+  if (!domain || !token) return;
+  const v = await validateShopify(domain, token);
+  await saveConnection(STORE, "shopify", { domain }, v.ok ? token : null, v.ok ? "connected" : "error", v.detail);
+  if (v.ok) {
+    try {
+      await runFullSync(STORE);
+    } catch {
+      // sincroniza depois via botão "Sincronizar"
+    }
+  }
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  revalidatePath("/orders");
+  revalidatePath("/products/costs");
 }
 
 export async function connectFacebook(formData: FormData) {

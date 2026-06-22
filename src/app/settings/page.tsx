@@ -52,23 +52,20 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         </p>
 
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          {/* Shopify (OAuth) */}
+          {/* Shopify (Access Token) */}
           <form className="card" action={connectShopify}>
-            <h3>Shopify <span className="tag">e-commerce · OAuth</span></h3>
+            <h3>Shopify <span className="tag">e-commerce</span></h3>
             <div style={{ margin: "6px 0 10px" }}><StatusChip status={sh?.status} detail={sh?.detail} /></div>
             <label className="field"><span>Domínio da loja</span>
-              <input name="domain" defaultValue={sh?.info.domain || ""} placeholder="hargrovelondon.myshopify.com" required />
+              <input name="domain" defaultValue={sh?.info.domain || ""} placeholder="sualoja.myshopify.com" required />
             </label>
-            <label className="field"><span>Client ID</span>
-              <input name="clientId" placeholder="do app no Dev Dashboard" required />
+            <label className="field"><span>Admin API access token</span>
+              <input name="token" type="password" placeholder={sh?.status === "connected" ? "•••••• (já salvo — preencha p/ trocar)" : "shpat_..."} />
             </label>
-            <label className="field"><span>Client Secret</span>
-              <input name="clientSecret" type="password" placeholder="••••••" required />
-            </label>
-            <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, color: "var(--mut)", fontSize: 13 }}>
-              <input type="checkbox" name="shopifyPayments" defaultChecked /> Integrar com Shopify Payments (taxas reais)
-            </label>
-            <button className="btn-primary" type="submit">{sh?.status === "connected" ? "Reconectar Shopify" : "Continuar →"}</button>
+            <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+              Token em: Shopify admin → Settings → Apps → Develop apps → seu app → API credentials.
+            </p>
+            <button className="btn-primary" type="submit">{sh?.status === "connected" ? "Reconectar & sincronizar" : "Conectar Shopify"}</button>
           </form>
 
           {/* Facebook */}
