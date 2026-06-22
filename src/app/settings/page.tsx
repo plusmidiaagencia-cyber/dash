@@ -41,9 +41,10 @@ export default async function SettingsPage() {
           <Link className="pill btn" href="/dashboard">← Voltar ao painel</Link>
         </div>
 
-        <div className="banner">
-          Conecte suas fontes de dados abaixo. Ao salvar, o token é <b>validado de verdade</b> e guardado criptografado.
-        </div>
+        <h3 className="sec-title">Integrações</h3>
+        <p className="muted" style={{ margin: "0 0 14px" }}>
+          Conecte suas fontes de dados. Ao salvar, o token é <b>validado de verdade</b> e guardado criptografado.
+        </p>
 
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           {/* Shopify */}
@@ -75,7 +76,10 @@ export default async function SettingsPage() {
             <input type="hidden" name="apiVersion" value="v21.0" />
             <button className="btn-primary" type="submit">{fb?.status === "connected" ? "Reconectar Facebook" : "Conectar Facebook"}</button>
           </form>
+        </div>
 
+        <h3 className="sec-title" style={{ marginTop: 28 }}>Custos & ajustes</h3>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           {/* Custos */}
           <form className="card" action={saveCosts}>
             <h3>Custos & Meta</h3>
