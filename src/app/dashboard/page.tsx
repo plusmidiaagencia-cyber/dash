@@ -107,7 +107,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               </div>
             </div>
             <div className="muted" style={{ marginTop: 10 }}>
-              {goal > 0 ? `Faltam ${money(Math.max(goal - curK.revenue, 0))} para a meta` : "Defina a meta em Configurações"}
+              {goal > 0 ? `Faltam ${money(Math.max(goal - curK.revenue, 0))} para a meta` : "Meta não definida"}
             </div>
           </div>
         </div>
