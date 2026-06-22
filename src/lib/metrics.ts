@@ -1,11 +1,14 @@
 /**
  * Motor de métricas — funções puras (sem I/O).
- * Recebe eventos crus (pedidos, gasto diário) + configurações de custo
- * e devolve os KPIs do painel, conforme spec §6.
+ * Recebe eventos crus (pedidos, gasto diário, ajustes) + configurações de custo
+ * e devolve os KPIs do painel.
  *
- * Estas funções são a parte testável e crítica do sistema: o cálculo do
- * lucro real. Servem tanto para os dados de exemplo quanto, depois, para os
- * dados reais vindos de Shopify/Facebook.
+ * Convenções (definição de lucro):
+ *   Faturamento = Σ total dos pedidos − Σ reembolsos        (vendas líquidas de devolução)
+ *   Custos      = CMV + Ads + Taxas(gateway) + Frete + Operacional + Impostos + Ajustes
+ *   Lucro       = Faturamento − Custos
+ * Imposto entra como CUSTO (não infla o lucro). Reembolso reduz o faturamento
+ * UMA vez (não é contado de novo como custo). Tudo em GBP (moeda base).
  */
 
 export type RawOrderItem = {
@@ -18,15 +21,16 @@ export type RawOrder = {
   id: string;
   /** ISO date (YYYY-MM-DD) */
   date: string;
-  financialStatus: "paid" | "refunded" | "cancelled";
+  financialStatus: "paid" | "refunded" | "cancelled" | string;
   total: number;
   refundedAmount: number;
   transactionFee: number;
+  /** imposto do pedido (entra como custo) */
+  tax?: number;
   items: RawOrderItem[];
 };
 
 export type DaySpend = {
-  /** ISO date (YYYY-MM-DD) */
   date: string;
   spend: number;
   pageViews: number;
@@ -36,6 +40,8 @@ export type DaySpend = {
   purchases: number;
 };
 
+export type Adjustment = { date: string; amount: number };
+
 export type CostSettings = {
   monthlyOperational: number;
   shippingMode: "none" | "flat" | "percent";
@@ -44,19 +50,8 @@ export type CostSettings = {
   revenueGoal: number;
 };
 
-export type FunnelStep = {
-  key: string;
-  label: string;
-  count: number;
-  pctOfTop: number;
-};
-
-export type DailyPoint = {
-  date: string;
-  revenue: number;
-  profit: number;
-  costs: number;
-};
+export type FunnelStep = { key: string; label: string; count: number; pctOfTop: number };
+export type DailyPoint = { date: string; revenue: number; profit: number; costs: number };
 
 export type Kpis = {
   revenue: number;
@@ -65,6 +60,7 @@ export type Kpis = {
   gatewayFees: number;
   shipping: number;
   operational: number;
+  tax: number;
   extras: number;
   totalCosts: number;
   profit: number;
@@ -83,65 +79,101 @@ export type Kpis = {
 
 const isCounted = (o: RawOrder) => o.financialStatus !== "cancelled";
 
-/** Nº de dias inteiros no intervalo [from, to]. */
-function daysBetween(from: string, to: string): number {
-  const a = new Date(from + "T00:00:00Z").getTime();
-  const b = new Date(to + "T00:00:00Z").getTime();
-  return Math.max(1, Math.round((b - a) / 86400000) + 1);
-}
-
-function daysInMonthOf(dateIso: string): number {
+function daysInMonth(dateIso: string): number {
   const d = new Date(dateIso + "T00:00:00Z");
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+}
+
+/** Lista de datas ISO (inclusive) entre from e to. */
+function eachDay(from: string, to: string): string[] {
+  const out: string[] = [];
+  const a = new Date(from + "T00:00:00Z");
+  const b = new Date(to + "T00:00:00Z");
+  if (b < a) return [from];
+  for (let d = new Date(a); d <= b; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
 }
 
 export function computeKpis(
   orders: RawOrder[],
   spend: DaySpend[],
   settings: CostSettings,
-  range: { from: string; to: string }
+  range: { from: string; to: string },
+  adjustments: Adjustment[] = []
 ): Kpis {
   const counted = orders.filter(isCounted);
+  const fallback = settings.gatewayFeePercentFallback;
 
-  const grossRevenue = counted.reduce((s, o) => s + o.total, 0);
-  const refunds = counted.reduce((s, o) => s + o.refundedAmount, 0);
-  const revenue = grossRevenue - refunds;
+  // série diária: começa com TODOS os dias do período (garante Σ diário = agregado)
+  const days = eachDay(range.from, range.to);
+  const byDay = new Map<string, DailyPoint>();
+  for (const d of days) byDay.set(d, { date: d, revenue: 0, profit: 0, costs: 0 });
+  const dayOf = (date: string) => byDay.get(date); // pode ser undefined se fora do range
 
-  const cogs = counted.reduce(
-    (s, o) => s + o.items.reduce((si, it) => si + it.unitCost * it.quantity, 0),
-    0
-  );
+  // operacional: rateio por dia conforme o mês de cada dia
+  let operational = 0;
+  for (const d of days) {
+    const op = settings.monthlyOperational / daysInMonth(d);
+    operational += op;
+    const p = dayOf(d);
+    if (p) p.costs += op;
+  }
 
-  const adSpend = spend.reduce((s, d) => s + d.spend, 0);
+  // passada única nos pedidos
+  let revenue = 0, cogs = 0, gatewayFees = 0, shipping = 0, tax = 0, units = 0;
+  for (const o of counted) {
+    const oRevenue = o.total - o.refundedAmount;
+    const oCogs = o.items.reduce((s, it) => s + it.unitCost * it.quantity, 0);
+    const oFee = o.transactionFee > 0 ? o.transactionFee : oRevenue * fallback;
+    const oShip =
+      settings.shippingMode === "flat" ? settings.shippingValue
+      : settings.shippingMode === "percent" ? oRevenue * settings.shippingValue
+      : 0;
+    const oTax = o.tax || 0;
 
-  const realFees = counted.reduce((s, o) => s + o.transactionFee, 0);
-  const gatewayFees =
-    realFees > 0 ? realFees : revenue * settings.gatewayFeePercentFallback;
+    revenue += oRevenue;
+    cogs += oCogs;
+    gatewayFees += oFee;
+    shipping += oShip;
+    tax += oTax;
+    units += o.items.reduce((s, it) => s + it.quantity, 0);
 
-  const orderCount = counted.length;
-  let shipping = 0;
-  if (settings.shippingMode === "flat") shipping = settings.shippingValue * orderCount;
-  else if (settings.shippingMode === "percent") shipping = revenue * settings.shippingValue;
+    const p = dayOf(o.date);
+    if (p) {
+      p.revenue += oRevenue;
+      p.costs += oCogs + oFee + oShip + oTax;
+    }
+  }
 
-  const periodDays = daysBetween(range.from, range.to);
-  const dim = daysInMonthOf(range.from);
-  const operational = (settings.monthlyOperational / dim) * periodDays;
+  // gasto de ads (por dia)
+  let adSpend = 0;
+  for (const d of spend) {
+    adSpend += d.spend;
+    const p = dayOf(d.date);
+    if (p) p.costs += d.spend;
+  }
 
-  const extras = refunds; // ajustes manuais entram aqui na versão com dados reais
+  // ajustes manuais (por dia)
+  let extras = 0;
+  for (const a of adjustments) {
+    extras += a.amount;
+    const p = dayOf(a.date);
+    if (p) p.costs += a.amount;
+  }
 
-  const totalCosts = cogs + adSpend + gatewayFees + shipping + operational + extras;
+  const totalCosts = cogs + adSpend + gatewayFees + shipping + operational + tax + extras;
   const profit = revenue - totalCosts;
 
+  const orderCount = counted.length;
   const margin = revenue > 0 ? profit / revenue : 0;
   const roas = adSpend > 0 ? revenue / adSpend : 0;
   const roi = adSpend > 0 ? profit / adSpend : 0;
   const cpa = orderCount > 0 ? adSpend / orderCount : 0;
   const aov = orderCount > 0 ? revenue / orderCount : 0;
-  const units = counted.reduce(
-    (s, o) => s + o.items.reduce((si, it) => si + it.quantity, 0),
-    0
-  );
 
+  // funil (Facebook)
   const f = spend.reduce(
     (acc, d) => {
       acc.pageViews += d.pageViews;
@@ -155,7 +187,7 @@ export function computeKpis(
   );
   const top = f.pageViews || 1;
   const funnel: FunnelStep[] = [
-    { key: "pageViews", label: "PageView", count: f.pageViews, pctOfTop: 1 },
+    { key: "pageViews", label: "PageView", count: f.pageViews, pctOfTop: f.pageViews > 0 ? 1 : 0 },
     { key: "viewContent", label: "ViewContent", count: f.viewContent, pctOfTop: f.viewContent / top },
     { key: "addToCart", label: "AddToCart", count: f.addToCart, pctOfTop: f.addToCart / top },
     { key: "initiateCheckout", label: "InitiateCheckout", count: f.initiateCheckout, pctOfTop: f.initiateCheckout / top },
@@ -164,36 +196,11 @@ export function computeKpis(
   const conversion = f.pageViews > 0 ? f.purchases / f.pageViews : 0;
   const goalPct = settings.revenueGoal > 0 ? revenue / settings.revenueGoal : 0;
 
-  // série diária (Faturamento / Lucro / Custos) para o gráfico
-  const byDay = new Map<string, DailyPoint>();
-  const ensure = (date: string) => {
-    let p = byDay.get(date);
-    if (!p) {
-      p = { date, revenue: 0, profit: 0, costs: 0 };
-      byDay.set(date, p);
-    }
-    return p;
-  };
-  for (const o of counted) {
-    const p = ensure(o.date);
-    const oRevenue = o.total - o.refundedAmount;
-    const oCogs = o.items.reduce((si, it) => si + it.unitCost * it.quantity, 0);
-    p.revenue += oRevenue;
-    p.costs += oCogs + o.transactionFee + o.refundedAmount;
-  }
-  for (const d of spend) {
-    const p = ensure(d.date);
-    p.costs += d.spend;
-  }
-  const opPerDay = settings.monthlyOperational / dim;
-  for (const p of byDay.values()) {
-    p.costs += opPerDay;
-    p.profit = p.revenue - p.costs;
-  }
+  for (const p of byDay.values()) p.profit = p.revenue - p.costs;
   const daily = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
 
   return {
-    revenue, cogs, adSpend, gatewayFees, shipping, operational, extras,
+    revenue, cogs, adSpend, gatewayFees, shipping, operational, tax, extras,
     totalCosts, profit, margin, roas, roi, cpa, aov, orders: orderCount,
     units, conversion, funnel, goalPct, daily,
   };

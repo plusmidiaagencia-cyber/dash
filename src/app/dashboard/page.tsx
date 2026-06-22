@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
 import Toolbar from "@/components/Toolbar";
+import SyncButton from "@/components/SyncButton";
 import Kpi from "@/components/Kpi";
 import { DEFAULT_STORE_ID } from "@/lib/store";
 import { loadKpis } from "@/lib/metrics-db";
@@ -64,6 +65,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <span className={`delta ${shConnected ? "up" : "flat"}`}>{shConnected ? "● Shopify" : "○ Shopify"}</span>
             <span className={`delta ${fbConnected ? "up" : "flat"}`}>{fbConnected ? "● Facebook" : "○ Facebook"}</span>
             <Toolbar period={period} currency={cur} from={range.from} to={range.to} />
+            <SyncButton />
             <Link className="pill btn" href="/settings">⚙ Conexões</Link>
           </div>
         </div>

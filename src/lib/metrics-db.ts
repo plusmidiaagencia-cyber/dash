@@ -16,11 +16,12 @@ export async function loadKpis(storeId: string, range: Range) {
       total: string;
       refunded_amount: string;
       transaction_fee: string;
+      total_tax: string;
     }[]
   >`
     select id,
            coalesce(processed_at, created_at_shop)::date::text as date,
-           financial_status, total, refunded_amount, transaction_fee
+           financial_status, total, refunded_amount, transaction_fee, total_tax
     from orders
     where store_id = ${storeId}
       and coalesce(processed_at, created_at_shop)::date between ${range.from} and ${range.to}
@@ -48,6 +49,7 @@ export async function loadKpis(storeId: string, range: Range) {
     total: Number(o.total),
     refundedAmount: Number(o.refunded_amount),
     transactionFee: Number(o.transaction_fee),
+    tax: Number(o.total_tax),
     items: itemsByOrder.get(o.id) ?? [],
   }));
 
@@ -77,6 +79,12 @@ export async function loadKpis(storeId: string, range: Range) {
     purchases: d.purchases,
   }));
 
+  const adjRows = await s<{ date: string; amount: string }[]>`
+    select date::text, amount from manual_adjustments
+    where store_id = ${storeId} and date between ${range.from} and ${range.to}
+  `;
+  const adjustments = adjRows.map((a) => ({ date: a.date, amount: Number(a.amount) }));
+
   const settings = await getCostSettings(storeId);
-  return computeKpis(orders, spend, settings, range);
+  return computeKpis(orders, spend, settings, range, adjustments);
 }
