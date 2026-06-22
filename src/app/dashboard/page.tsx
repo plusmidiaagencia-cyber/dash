@@ -1,28 +1,37 @@
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
+import Toolbar from "@/components/Toolbar";
 import Kpi from "@/components/Kpi";
 import { DEFAULT_STORE_ID } from "@/lib/store";
 import { loadKpis } from "@/lib/metrics-db";
 import { getConnections, getStore } from "@/lib/data";
-import { gbp, num, pct, mult, delta } from "@/lib/format";
+import { resolveRange, type Period } from "@/lib/range";
+import { getRate, type Currency, CURRENCIES } from "@/lib/fx";
+import { money as fmtMoney, num, pct, mult, delta } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-function isoDaysAgo(n: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
+type SP = Record<string, string | undefined>;
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
   const STORE = DEFAULT_STORE_ID;
-  const today = new Date().toISOString().slice(0, 10);
-  const curRange = { from: isoDaysAgo(29), to: today };
-  const prevRange = { from: isoDaysAgo(59), to: isoDaysAgo(30) };
 
-  const [cur, prev, conns, store] = await Promise.all([
-    loadKpis(STORE, curRange),
-    loadKpis(STORE, prevRange),
+  const period: Period = (["today", "yesterday", "7d", "30d", "this_month", "last_month", "custom"].includes(sp.period || "") ? sp.period : "30d") as Period;
+  const range = resolveRange(period, sp.from, sp.to);
+
+  let cur: Currency = (CURRENCIES.includes((sp.cur || "GBP") as Currency) ? sp.cur : "GBP") as Currency;
+  let fx = 1;
+  if (cur !== "GBP") {
+    const r = await getRate("GBP", cur);
+    if (r) fx = r;
+    else cur = "GBP";
+  }
+  const money = (v: number) => fmtMoney(v * fx, cur);
+
+  const [curK, prev, conns, store] = await Promise.all([
+    loadKpis(STORE, { from: range.from, to: range.to }),
+    loadKpis(STORE, { from: range.prevFrom, to: range.prevTo }),
     getConnections(STORE),
     getStore(STORE),
   ]);
@@ -31,9 +40,9 @@ export default async function DashboardPage() {
   const fbConnected = conns.facebook?.status === "connected";
   const nothingConnected = !shConnected && !fbConnected;
   const goal = store?.revenueGoal ?? 0;
-  const goalPct = goal > 0 ? cur.revenue / goal : 0;
+  const goalPct = goal > 0 ? curK.revenue / goal : 0;
   const ringDeg = Math.round(Math.min(goalPct, 1) * 360);
-  const maxRev = Math.max(...cur.daily.map((d) => d.revenue), 1);
+  const maxRev = Math.max(...curK.daily.map((d) => d.revenue), 1);
 
   return (
     <div className="wrap">
@@ -54,19 +63,22 @@ export default async function DashboardPage() {
           <div className="filters">
             <span className={`delta ${shConnected ? "up" : "flat"}`}>{shConnected ? "● Shopify" : "○ Shopify"}</span>
             <span className={`delta ${fbConnected ? "up" : "flat"}`}>{fbConnected ? "● Facebook" : "○ Facebook"}</span>
-            <div className="pill">📅 Últimos 30 dias</div>
-            <div className="pill">🇬🇧 {store?.currency ?? "GBP"}</div>
+            <Toolbar period={period} currency={cur} from={range.from} to={range.to} />
             <Link className="pill btn" href="/settings">⚙ Conexões</Link>
           </div>
         </div>
 
+        <p className="muted" style={{ margin: "-6px 0 14px" }}>
+          {range.label} · {range.from} → {range.to}
+        </p>
+
         {/* KPIs principais */}
         <div className="grid kpis">
-          <Kpi highlight label="Lucro líquido" value={gbp(cur.profit)} icon="💷" iconBg="rgba(67,201,139,.2)" delta={delta(cur.profit, prev.profit)} />
-          <Kpi label="Faturamento" value={gbp(cur.revenue)} icon="📈" iconBg="rgba(109,108,240,.18)" delta={delta(cur.revenue, prev.revenue)} />
-          <Kpi label="Custos totais" value={gbp(cur.totalCosts)} icon="💸" iconBg="rgba(226,104,95,.16)" delta={delta(cur.totalCosts, prev.totalCosts)} goodWhenUp={false} />
-          <Kpi label="Taxas (gateway)" value={gbp(cur.gatewayFees)} icon="🧾" iconBg="rgba(194,168,120,.18)" delta={delta(cur.gatewayFees, prev.gatewayFees)} goodWhenUp={false} />
-          <Kpi label="Margem" value={pct(cur.margin)} icon="％" iconBg="rgba(194,168,120,.18)" delta={delta(cur.margin, prev.margin)} />
+          <Kpi highlight label="Lucro líquido" value={money(curK.profit)} icon="💷" iconBg="rgba(67,201,139,.2)" delta={delta(curK.profit, prev.profit)} />
+          <Kpi label="Faturamento" value={money(curK.revenue)} icon="📈" iconBg="rgba(109,108,240,.18)" delta={delta(curK.revenue, prev.revenue)} />
+          <Kpi label="Custos totais" value={money(curK.totalCosts)} icon="💸" iconBg="rgba(226,104,95,.16)" delta={delta(curK.totalCosts, prev.totalCosts)} goodWhenUp={false} />
+          <Kpi label="Taxas (gateway)" value={money(curK.gatewayFees)} icon="🧾" iconBg="rgba(194,168,120,.18)" delta={delta(curK.gatewayFees, prev.gatewayFees)} goodWhenUp={false} />
+          <Kpi label="Margem" value={pct(curK.margin)} icon="％" iconBg="rgba(194,168,120,.18)" delta={delta(curK.margin, prev.margin)} />
         </div>
 
         {/* funil + meta */}
@@ -74,7 +86,7 @@ export default async function DashboardPage() {
           <div className="card">
             <h3>Funil de conversão <span className="tag">Facebook Pixel</span></h3>
             <div className="funnel">
-              {cur.funnel.map((s) => (
+              {curK.funnel.map((s) => (
                 <div className="step" key={s.key}>
                   <div className="nm">{s.label}</div>
                   <div className="pct">{pct(s.pctOfTop, 0)}</div>
@@ -83,7 +95,7 @@ export default async function DashboardPage() {
               ))}
             </div>
             <div className="bars">
-              {cur.funnel.map((s) => (<span key={s.key} style={{ height: `${Math.max(s.pctOfTop * 100, 3)}%` }} />))}
+              {curK.funnel.map((s) => (<span key={s.key} style={{ height: `${Math.max(s.pctOfTop * 100, 3)}%` }} />))}
             </div>
           </div>
           <div className="card gauge">
@@ -91,47 +103,47 @@ export default async function DashboardPage() {
             <div className="ring" style={{ background: `conic-gradient(var(--champ) 0 ${ringDeg}deg, #2a2e36 ${ringDeg}deg 360deg)` }}>
               <div className="hole">
                 <b>{pct(goalPct, 0)}</b>
-                <small className="muted">{gbp(cur.revenue)} / {gbp(goal)}</small>
+                <small className="muted">{money(curK.revenue)} / {money(goal)}</small>
               </div>
             </div>
             <div className="muted" style={{ marginTop: 10 }}>
-              {goal > 0 ? `Faltam ${gbp(Math.max(goal - cur.revenue, 0))} para a meta` : "Defina a meta em Configurações"}
+              {goal > 0 ? `Faltam ${money(Math.max(goal - curK.revenue, 0))} para a meta` : "Defina a meta em Configurações"}
             </div>
           </div>
         </div>
 
         {/* tráfego pago */}
         <div className="grid secondary">
-          <Kpi label="Investido em ads" value={gbp(cur.adSpend)} icon="🎯" iconBg="rgba(24,119,242,.18)" delta={delta(cur.adSpend, prev.adSpend)} goodWhenUp={false} />
-          <Kpi label="CPA" value={cur.cpa > 0 ? gbp(cur.cpa) : "—"} icon="🧮" iconBg="rgba(109,108,240,.18)" delta={delta(cur.cpa, prev.cpa)} goodWhenUp={false} />
-          <Kpi label="ROI" value={mult(cur.roi)} icon="📊" iconBg="rgba(67,201,139,.16)" delta={delta(cur.roi, prev.roi)} />
-          <Kpi label="ROAS" value={mult(cur.roas)} icon="🚀" iconBg="rgba(194,168,120,.18)" delta={delta(cur.roas, prev.roas)} />
+          <Kpi label="Investido em ads" value={money(curK.adSpend)} icon="🎯" iconBg="rgba(24,119,242,.18)" delta={delta(curK.adSpend, prev.adSpend)} goodWhenUp={false} />
+          <Kpi label="CPA" value={curK.cpa > 0 ? money(curK.cpa) : "—"} icon="🧮" iconBg="rgba(109,108,240,.18)" delta={delta(curK.cpa, prev.cpa)} goodWhenUp={false} />
+          <Kpi label="ROI" value={mult(curK.roi)} icon="📊" iconBg="rgba(67,201,139,.16)" delta={delta(curK.roi, prev.roi)} />
+          <Kpi label="ROAS" value={mult(curK.roas)} icon="🚀" iconBg="rgba(194,168,120,.18)" delta={delta(curK.roas, prev.roas)} />
         </div>
         <div className="grid secondary">
-          <Kpi label="Custo de produto (CMV)" value={gbp(cur.cogs)} icon="📦" iconBg="rgba(139,143,152,.18)" delta={delta(cur.cogs, prev.cogs)} goodWhenUp={false} />
-          <Kpi label="Pedidos" value={num(cur.orders)} icon="🛒" iconBg="rgba(109,108,240,.18)" delta={delta(cur.orders, prev.orders)} />
-          <Kpi label="Ticket médio" value={cur.aov > 0 ? gbp(cur.aov) : "—"} icon="🎟️" iconBg="rgba(194,168,120,.18)" delta={delta(cur.aov, prev.aov)} />
-          <Kpi label="Taxa de conversão" value={pct(cur.conversion)} icon="✅" iconBg="rgba(67,201,139,.16)" delta={delta(cur.conversion, prev.conversion)} />
+          <Kpi label="Custo de produto (CMV)" value={money(curK.cogs)} icon="📦" iconBg="rgba(139,143,152,.18)" delta={delta(curK.cogs, prev.cogs)} goodWhenUp={false} />
+          <Kpi label="Pedidos" value={num(curK.orders)} icon="🛒" iconBg="rgba(109,108,240,.18)" delta={delta(curK.orders, prev.orders)} />
+          <Kpi label="Ticket médio" value={curK.aov > 0 ? money(curK.aov) : "—"} icon="🎟️" iconBg="rgba(194,168,120,.18)" delta={delta(curK.aov, prev.aov)} />
+          <Kpi label="Taxa de conversão" value={pct(curK.conversion)} icon="✅" iconBg="rgba(67,201,139,.16)" delta={delta(curK.conversion, prev.conversion)} />
         </div>
 
         {/* gasto por canal */}
         <div className="grid spend">
-          <div className="card"><div className="sp"><div className="b" style={{ background: "var(--fb)" }}>f</div><div><small>Facebook Ads — gasto</small><b>{gbp(cur.adSpend)} {!fbConnected && <span className="tag">não conectado</span>}</b></div></div></div>
-          <div className="card"><div className="sp"><div className="b" style={{ background: "#000" }}>▮</div><div><small>TikTok Ads — gasto</small><b>{gbp(0)} <span className="tag">em breve</span></b></div></div></div>
-          <div className="card"><div className="sp"><div className="b" style={{ background: "var(--shop)" }}>S</div><div><small>Shopify — pedidos</small><b>{num(cur.orders)} {!shConnected && <span className="tag">não conectado</span>}</b></div></div></div>
-          <div className="card"><div className="sp"><div className="b" style={{ background: "var(--champ)", color: "#1b1b1b" }}>£</div><div><small>Operacional + extras</small><b>{gbp(cur.operational + cur.extras)}</b></div></div></div>
+          <div className="card"><div className="sp"><div className="b" style={{ background: "var(--fb)" }}>f</div><div><small>Facebook Ads — gasto</small><b>{money(curK.adSpend)} {!fbConnected && <span className="tag">não conectado</span>}</b></div></div></div>
+          <div className="card"><div className="sp"><div className="b" style={{ background: "#000" }}>▮</div><div><small>TikTok Ads — gasto</small><b>{money(0)} <span className="tag">em breve</span></b></div></div></div>
+          <div className="card"><div className="sp"><div className="b" style={{ background: "var(--shop)" }}>S</div><div><small>Shopify — pedidos</small><b>{num(curK.orders)} {!shConnected && <span className="tag">não conectado</span>}</b></div></div></div>
+          <div className="card"><div className="sp"><div className="b" style={{ background: "var(--champ)", color: "#1b1b1b" }}>£</div><div><small>Operacional + extras</small><b>{money(curK.operational + curK.extras)}</b></div></div></div>
         </div>
 
         {/* gráfico diário */}
         <div className="card" style={{ marginTop: 14 }}>
           <h3>Faturamento × Lucro × Custos (por dia)</h3>
-          {cur.daily.length === 0 ? (
+          {curK.daily.length === 0 ? (
             <div className="chart" style={{ alignItems: "center", justifyContent: "center" }}>
               <span className="muted">Sem dados no período — conecte uma fonte para ver o gráfico.</span>
             </div>
           ) : (
             <div className="chart">
-              {cur.daily.map((d) => {
+              {curK.daily.map((d) => {
                 const h = (v: number) => `${Math.max((v / maxRev) * 160, 0)}px`;
                 return (
                   <div className="col" key={d.date} title={d.date}>
@@ -151,7 +163,7 @@ export default async function DashboardPage() {
         </div>
 
         <p className="muted" style={{ marginTop: 22, textAlign: "center" }}>
-          {store?.name ?? "HARGROVE"} · dados reais do banco · {nothingConnected ? "nenhuma fonte conectada" : "fontes conectadas"}
+          {store?.name ?? "HARGROVE"} · {cur}{fx !== 1 ? ` (câmbio GBP→${cur} ${fx.toFixed(4)})` : ""} · {nothingConnected ? "nenhuma fonte conectada" : "fontes conectadas"}
         </p>
       </main>
     </div>

@@ -1,9 +1,16 @@
 /** Formatação de valores para a UI (GBP por padrão na Fase 1). */
 
 export function gbp(value: number): string {
-  return new Intl.NumberFormat("en-GB", {
+  return money(value, "GBP");
+}
+
+const LOCALES: Record<string, string> = { GBP: "en-GB", USD: "en-US", EUR: "de-DE", BRL: "pt-BR" };
+
+/** Formata um valor numa moeda qualquer (o valor já deve vir convertido). */
+export function money(value: number, currency: string): string {
+  return new Intl.NumberFormat(LOCALES[currency] ?? "en-GB", {
     style: "currency",
-    currency: "GBP",
+    currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value || 0);

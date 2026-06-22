@@ -71,6 +71,9 @@ a { color: inherit; text-decoration: none; }
 .pill.dim { color: var(--mut); }
 .pill.btn { cursor: pointer; }
 .pill.btn:hover { border-color: var(--champ); }
+select.pill, input.pill { font: inherit; cursor: pointer; color-scheme: dark; }
+select.pill { appearance: none; padding-right: 30px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b8f98' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; }
+select.pill:hover, input.pill:hover { border-color: var(--champ); }
 
 /* grids */
 .grid { display: grid; gap: 14px; }
