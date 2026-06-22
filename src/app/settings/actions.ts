@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { DEFAULT_STORE_ID } from "@/lib/store";
 import { validateShopify, validateFacebook } from "@/lib/providers";
 import { runFullSync } from "@/lib/shopify-sync";
+import { syncFacebook } from "@/lib/facebook-sync";
 import {
   saveConnection, saveCostSettings, saveStoreGoal, addAdjustment, deleteAdjustment,
 } from "@/lib/data";
@@ -51,6 +52,13 @@ export async function connectFacebook(formData: FormData) {
     v.ok ? "connected" : "error",
     v.detail
   );
+  if (v.ok) {
+    try {
+      await syncFacebook(STORE);
+    } catch {
+      // sincroniza depois
+    }
+  }
   revalidatePath("/settings");
   revalidatePath("/dashboard");
 }
