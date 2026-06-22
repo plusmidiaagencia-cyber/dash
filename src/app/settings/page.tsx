@@ -1,7 +1,9 @@
 import Sidebar from "@/components/Sidebar";
+import SyncButton from "@/components/SyncButton";
 import Link from "next/link";
 import { DEFAULT_STORE_ID } from "@/lib/store";
 import { getConnections, getCostSettings, listAdjustments } from "@/lib/data";
+import { callbackUrl, SHOPIFY_SCOPES } from "@/lib/shopify-oauth";
 import { gbp } from "@/lib/format";
 import { connectShopify, connectFacebook, saveCosts, createAdjustment, removeAdjustment } from "./actions";
 
@@ -10,6 +12,7 @@ export const dynamic = "force-dynamic";
 function StatusChip({ status, detail }: { status?: string; detail?: string }) {
   const map: Record<string, { cls: string; txt: string }> = {
     connected: { cls: "up", txt: "● Conectado" },
+    connecting: { cls: "flat", txt: "◌ Conectando…" },
     error: { cls: "down", txt: "● Erro" },
     disconnected: { cls: "flat", txt: "○ Não conectado" },
   };
@@ -22,12 +25,14 @@ function StatusChip({ status, detail }: { status?: string; detail?: string }) {
   );
 }
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const sp = await searchParams;
   const conns = await getConnections(DEFAULT_STORE_ID);
   const cost = await getCostSettings(DEFAULT_STORE_ID);
   const adjustments = await listAdjustments(DEFAULT_STORE_ID);
   const sh = conns.shopify;
   const fb = conns.facebook;
+  const cb = callbackUrl();
 
   return (
     <div className="wrap">
@@ -38,26 +43,45 @@ export default async function SettingsPage() {
             <div className="av">H</div>
             <div><small>Configurações & Conexões</small><b>HARGROVE London</b></div>
           </div>
-          <Link className="pill btn" href="/dashboard">← Voltar ao painel</Link>
+          <div className="filters">
+            <SyncButton />
+            <Link className="pill btn" href="/dashboard">← Painel</Link>
+          </div>
         </div>
+
+        {sp.error && <div className="banner" style={{ borderColor: "rgba(226,104,95,.4)", color: "var(--red)" }}>Erro na conexão: {sp.error}</div>}
 
         <h3 className="sec-title">Integrações</h3>
         <p className="muted" style={{ margin: "0 0 14px" }}>
-          Conecte suas fontes de dados. Ao salvar, o token é <b>validado de verdade</b> e guardado criptografado.
+          Conecte suas fontes de dados. As credenciais são guardadas criptografadas.
         </p>
 
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          {/* Shopify */}
+          {/* Shopify (OAuth) */}
           <form className="card" action={connectShopify}>
-            <h3>Shopify <span className="tag">e-commerce</span></h3>
+            <h3>Shopify <span className="tag">e-commerce · OAuth</span></h3>
             <div style={{ margin: "6px 0 10px" }}><StatusChip status={sh?.status} detail={sh?.detail} /></div>
             <label className="field"><span>Domínio da loja</span>
               <input name="domain" defaultValue={sh?.info.domain || ""} placeholder="hargrovelondon.myshopify.com" required />
             </label>
-            <label className="field"><span>Admin API access token</span>
-              <input name="token" type="password" placeholder={sh?.status === "connected" ? "•••••• (já salvo — preencha p/ trocar)" : "shpat_..."} />
+            <label className="field"><span>Client ID</span>
+              <input name="clientId" placeholder="do app no Dev Dashboard" required />
             </label>
-            <button className="btn-primary" type="submit">{sh?.status === "connected" ? "Reconectar Shopify" : "Conectar Shopify"}</button>
+            <label className="field"><span>Client Secret</span>
+              <input name="clientSecret" type="password" placeholder="••••••" required />
+            </label>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, color: "var(--mut)", fontSize: 13 }}>
+              <input type="checkbox" name="shopifyPayments" defaultChecked /> Integrar com Shopify Payments (taxas reais)
+            </label>
+            <button className="btn-primary" type="submit">{sh?.status === "connected" ? "Reconectar Shopify" : "Continuar →"}</button>
+
+            <div style={{ marginTop: 16, borderTop: "1px solid var(--line)", paddingTop: 14 }}>
+              <p className="muted" style={{ margin: "0 0 6px" }}>No <a href="https://shopify.dev/dashboard" target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>Dev Dashboard do Shopify</a>, crie um app e configure:</p>
+              <p className="muted" style={{ margin: "0 0 4px" }}><b>Allowed redirection URL (App URL):</b></p>
+              <code style={{ display: "block", background: "var(--panel2)", padding: "8px 10px", borderRadius: 8, fontSize: 11, wordBreak: "break-all", marginBottom: 8 }}>{cb}</code>
+              <p className="muted" style={{ margin: "0 0 4px" }}><b>Escopos:</b></p>
+              <code style={{ display: "block", background: "var(--panel2)", padding: "8px 10px", borderRadius: 8, fontSize: 11, wordBreak: "break-all" }}>{SHOPIFY_SCOPES}</code>
+            </div>
           </form>
 
           {/* Facebook */}

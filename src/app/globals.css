@@ -50,7 +50,29 @@ a { color: inherit; text-decoration: none; }
 .nav-ic { display: grid; place-items: center; width: 20px; flex: 0 0 auto; }
 .nav-txt { display: flex; flex-direction: column; line-height: 1.2; font-size: 14px; }
 .nav-txt small { color: var(--mut); font-size: 10.5px; margin-top: 2px; }
+.nav-ic { font-size: 16px; }
 .nav-foot { margin-top: auto; }
+.nav-item.soon { opacity: .5; cursor: default; }
+.nav-item.soon:hover { background: none; color: var(--mut); }
+.nav-item .tag { margin-left: auto; }
+.nav-group { color: var(--ink); cursor: default; }
+.nav-group:hover { background: none; }
+.nav-sub { display: flex; flex-direction: column; margin: 2px 0 4px 30px; }
+.nav-subitem { padding: 7px 10px; border-radius: 8px; color: var(--mut); font-size: 13px; }
+.nav-subitem:hover { background: #14171c; color: var(--ink); }
+.nav-subitem.on { background: #1c1f26; color: var(--ink); }
+/* tabela */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 880px; }
+table.tbl th { text-align: right; color: var(--mut); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+table.tbl th:first-child, table.tbl td:first-child { text-align: left; }
+table.tbl td { text-align: right; padding: 13px 14px; border-bottom: 1px solid var(--line); }
+table.tbl tr:last-child td { border-bottom: 0; }
+table.tbl tr:hover td { background: #14171c; }
+.pill-status { font-size: 11px; padding: 3px 9px; border-radius: 20px; }
+.profit-pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 8px; background: rgba(67,201,139,.12); color: var(--green); }
+.profit-pill.neg { background: rgba(226,104,95,.12); color: var(--red); }
+.thumb { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; background: var(--panel2); display: inline-block; vertical-align: middle; }
 
 @media (max-width: 860px) {
   .side { width: 64px; padding: 18px 8px; }

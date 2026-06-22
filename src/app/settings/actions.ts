@@ -1,28 +1,29 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import crypto from "node:crypto";
 import { DEFAULT_STORE_ID } from "@/lib/store";
-import { validateShopify, validateFacebook } from "@/lib/providers";
+import { validateFacebook } from "@/lib/providers";
+import { authorizeUrl } from "@/lib/shopify-oauth";
 import {
   saveConnection, saveCostSettings, saveStoreGoal, addAdjustment, deleteAdjustment,
+  saveShopifyOAuthStart,
 } from "@/lib/data";
 
 const STORE = DEFAULT_STORE_ID;
 
 export async function connectShopify(formData: FormData) {
-  const domain = String(formData.get("domain") || "").trim();
-  const token = String(formData.get("token") || "").trim();
-  if (!domain || !token) return;
-  const v = await validateShopify(domain, token);
-  await saveConnection(
-    STORE, "shopify",
-    { domain: domain.replace(/^https?:\/\//, "").replace(/\/$/, "") },
-    v.ok ? token : null,
-    v.ok ? "connected" : "error",
-    v.detail
-  );
-  revalidatePath("/settings");
-  revalidatePath("/dashboard");
+  let domain = String(formData.get("domain") || "").trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (domain && !domain.includes(".")) domain = `${domain}.myshopify.com`;
+  const clientId = String(formData.get("clientId") || "").trim();
+  const clientSecret = String(formData.get("clientSecret") || "").trim();
+  const shopifyPayments = formData.get("shopifyPayments") === "on";
+  if (!domain || !clientId || !clientSecret) return;
+
+  const state = crypto.randomBytes(16).toString("hex");
+  await saveShopifyOAuthStart(STORE, { domain, clientId, clientSecret, shopifyPayments, state });
+  redirect(authorizeUrl(domain, clientId, state));
 }
 
 export async function connectFacebook(formData: FormData) {
