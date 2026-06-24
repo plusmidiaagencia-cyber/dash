@@ -5,13 +5,13 @@ import { DEFAULT_STORE_ID } from "@/lib/store";
 import { runFullSync } from "@/lib/shopify-sync";
 import { syncFacebook } from "@/lib/facebook-sync";
 
-/** Sincroniza Shopify (produtos + pedidos) E Facebook (gasto + funil). */
-export async function runAllSync() {
+/** Sincroniza Shopify (produtos + pedidos) E Facebook (gasto + funil) de uma loja. */
+export async function runAllSync(storeId: string = DEFAULT_STORE_ID) {
   let products = 0, orders = 0, fbDays = 0;
   const errors: string[] = [];
 
   try {
-    const r = await runFullSync(DEFAULT_STORE_ID);
+    const r = await runFullSync(storeId);
     products = r.products;
     orders = r.orders;
   } catch (e) {
@@ -19,7 +19,7 @@ export async function runAllSync() {
   }
 
   try {
-    fbDays = await syncFacebook(DEFAULT_STORE_ID);
+    fbDays = await syncFacebook(storeId);
   } catch (e) {
     errors.push(`Facebook: ${(e as Error).message}`);
   }

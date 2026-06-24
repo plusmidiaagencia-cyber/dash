@@ -1,26 +1,22 @@
-import { NextResponse } from "next/server";
+import { authStore, json, preflight } from "@/lib/auth-server";
 import { runAllSync } from "@/app/actions/sync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "content-type",
-};
-
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS });
+export function OPTIONS() {
+  return preflight();
 }
 
-/** Dispara o sync completo (Shopify + Facebook, com conversão de moeda) e devolve o resumo.
+/** Dispara o sync completo (Shopify + Facebook) da loja do workspace logado.
  *  Chamado pelo front (botão "Atualizar" / ao entrar na tela). Idempotente (upserts). */
-export async function POST() {
+export async function POST(req: Request) {
+  const a = await authStore(req);
+  if (a.res) return a.res;
   try {
-    const r = await runAllSync();
-    return NextResponse.json(r, { headers: CORS });
+    const r = await runAllSync(a.storeId);
+    return json(r);
   } catch (e) {
-    return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500, headers: CORS });
+    return json({ ok: false, error: (e as Error).message }, 500);
   }
 }
