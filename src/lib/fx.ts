@@ -1,4 +1,4 @@
-/** Câmbio para a troca de moeda (base GBP). Usa frankfurter.app (grátis, sem chave). */
+/** Câmbio para a troca de moeda (base GBP). Usa open.er-api.com (grátis, sem chave). */
 
 export const CURRENCIES = ["GBP", "USD", "EUR", "BRL"] as const;
 export type Currency = (typeof CURRENCIES)[number];
@@ -7,7 +7,7 @@ export type Currency = (typeof CURRENCIES)[number];
 export async function getRate(base: Currency, target: Currency): Promise<number | null> {
   if (target === base) return 1;
   try {
-    const res = await fetch(`https://api.frankfurter.app/latest?from=${base}&to=${target}`, {
+    const res = await fetch(`https://open.er-api.com/v6/latest/${base}`, {
       next: { revalidate: 3600 },
     });
     if (!res.ok) return null;

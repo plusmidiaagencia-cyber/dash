@@ -38,6 +38,15 @@ async function run() {
   if (vj.error) throw new Error(vj.error.message);
   console.log("conta:", vj.name, "| moeda:", vj.currency);
 
+  // converte a moeda da conta (ex.: USD) -> GBP (base do painel)
+  let rate = 1;
+  if (vj.currency && vj.currency !== "GBP") {
+    const fr = await fetch(`https://open.er-api.com/v6/latest/${vj.currency}`);
+    const fj = await fr.json();
+    rate = fj?.rates?.GBP || 1;
+    console.log(`taxa ${vj.currency}->GBP:`, rate);
+  }
+
   const creds = {
     accountId: ACCOUNT, pixelId: pixel, apiVersion: ver,
     tokenEnc: encrypt(token), _detail: `Conectado: ${vj.name?.trim()} (${vj.currency})`,
@@ -71,7 +80,7 @@ async function run() {
     const a = {}; for (const x of (d.actions || [])) a[x.action_type] = Number(x.value) || 0;
     const pick = (k) => k.reduce((s, x) => s + (a[x] || 0), 0);
     await sql`insert into ad_spend_daily (store_id, date, spend, page_views, view_content, add_to_cart, initiate_checkout, purchases, updated_at)
-      values (${STORE_ID}, ${d.date_start}, ${Number(d.spend) || 0}, ${pick(MAP.pv)}, ${pick(MAP.vc)}, ${pick(MAP.atc)}, ${pick(MAP.ic)}, ${pick(MAP.pu)}, now())
+      values (${STORE_ID}, ${d.date_start}, ${(Number(d.spend) || 0) * rate}, ${pick(MAP.pv)}, ${pick(MAP.vc)}, ${pick(MAP.atc)}, ${pick(MAP.ic)}, ${pick(MAP.pu)}, now())
       on conflict (store_id, date) do update set spend=excluded.spend, page_views=excluded.page_views, view_content=excluded.view_content, add_to_cart=excluded.add_to_cart, initiate_checkout=excluded.initiate_checkout, purchases=excluded.purchases, updated_at=now()`;
   }
   console.log(`✅ insights: ${rows.length} dias com dados`);
